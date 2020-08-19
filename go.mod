@@ -1,4 +1,4 @@
-module bypass
+module github.com/lostz/bypass
 
 go 1.15
 
