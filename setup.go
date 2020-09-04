@@ -2,7 +2,10 @@ package bypass
 
 import (
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy"
@@ -13,6 +16,8 @@ import (
 	pkgtls "github.com/coredns/coredns/plugin/pkg/tls"
 	"github.com/coredns/coredns/plugin/pkg/transport"
 )
+
+var once sync.Once
 
 func init() {
 	caddy.RegisterPlugin("bypass", caddy.Plugin{
@@ -45,6 +50,9 @@ func setup(c *caddy.Controller) error {
 	c.OnShutdown(func() error {
 		return b.OnShutdown()
 	})
+	once.Do(func() {
+		caddy.RegisterEventHook("reload", b.hook)
+	})
 
 	return nil
 }
@@ -69,6 +77,8 @@ func (b *Bypass) OnShutdown() error {
 	for _, p := range b.pass {
 		p.close()
 	}
+	b.quit <- true
+
 	return nil
 }
 
@@ -150,19 +160,46 @@ func ParseBypassStanza(c *caddyfile.Dispenser) (*Bypass, error) {
 
 func parseBlock(c *caddyfile.Dispenser, b *Bypass) error {
 	switch c.Val() {
+	case "geosite":
+		if !c.NextArg() {
+			return c.ArgErr()
+
+		}
+		path := c.Val()
+		if path == "" {
+			return c.ArgErr()
+		}
+		_, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		b.geosite = path
 	case "include":
 		if !c.NextArg() {
 			return c.ArgErr()
 		}
-		listURL := c.Val()
-		if listURL == "" {
-			return c.ArgErr()
+		domain := c.Val()
+		domains := strings.Split(domain, ",")
+		file, err := os.Open(b.geosite)
+		if err != nil {
+			return err
 		}
-		domainList, err := NewDomainList(listURL, 10*time.Second)
+		defer file.Close()
+		fileinfo, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		domainList, err := NewDomainList(file, domains)
 		if err != nil {
 			return err
 		}
 		b.include = domainList
+		csum, err := PartialChecksum(file, fileinfo.Size())
+		if err != nil {
+			return err
+		}
+		b.domainChecksum = string(csum)
+		b.domains = domains
 	case "forward":
 		forward := c.RemainingArgs()
 		if len(forward) == 0 {
@@ -251,6 +288,18 @@ func parseBlock(c *caddyfile.Dispenser, b *Bypass) error {
 		default:
 			return c.Errf("unknown policy '%s'", x)
 		}
+	case "reload":
+		if !c.NextArg() {
+			return c.ArgErr()
+		}
+		dur, err := time.ParseDuration(c.Val())
+		if err != nil {
+			return err
+		}
+		if dur < 0 {
+			return fmt.Errorf("reload duration can't be negative: %s", dur)
+		}
+		b.dur = dur
 
 	default:
 		return c.Errf("unknown property '%s'", c.Val())

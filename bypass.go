@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"os"
 	"sync/atomic"
 	"time"
 
+	"github.com/caddyserver/caddy"
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/debug"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
@@ -24,10 +26,15 @@ type Bypass struct {
 	forward    []*Proxy
 	p          Policy
 	hcInterval time.Duration
+	geosite    string
+	domains    []string
 
-	from    string
-	include *DomainList
-	opts    options // also here for testing
+	from           string
+	include        *DomainList
+	domainChecksum string
+	dur            time.Duration
+
+	opts options // also here for testing
 
 	tlsConfig     *tls.Config
 	tlsServerName string
@@ -40,11 +47,12 @@ type Bypass struct {
 	ErrLimitExceeded error
 
 	Next plugin.Handler
+	quit chan bool
 }
 
 // New returns a new Bypass.
 func New() *Bypass {
-	b := &Bypass{maxfails: 2, tlsConfig: new(tls.Config), expire: defaultExpire, p: new(random), from: ".", hcInterval: hcInterval, opts: options{forceTCP: false, preferUDP: false, hcRecursionDesired: true}}
+	b := &Bypass{maxfails: 2, tlsConfig: new(tls.Config), expire: defaultExpire, p: new(random), from: ".", hcInterval: hcInterval, quit: make(chan bool), dur: defaultDuraiton, opts: options{forceTCP: false, preferUDP: false, hcRecursionDesired: true}}
 	return b
 }
 
@@ -191,6 +199,63 @@ func (b *Bypass) ForceTCP() bool { return b.opts.forceTCP }
 // PreferUDP returns if UDP is preferred to be used even when the request comes in over TCP.
 func (b *Bypass) PreferUDP() bool { return b.opts.preferUDP }
 
+func (b *Bypass) hook(event caddy.EventName, info interface{}) error {
+	if event != caddy.InstanceStartupEvent {
+		return nil
+	}
+	file, err := os.Open(b.geosite)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	fileinfo, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	csum, err := PartialChecksum(file, fileinfo.Size())
+	if err != nil {
+		return err
+	}
+	log.Infof("Running domainList  sum = %x\n", string(csum))
+	go func() {
+		tick := time.NewTicker(b.dur)
+		for {
+			select {
+			case <-tick.C:
+				file, err := os.Open(b.geosite)
+				if err != nil {
+					continue
+				}
+				defer file.Close()
+				fileinfo, err := file.Stat()
+				if err != nil {
+					continue
+				}
+				csum, err := PartialChecksum(file, fileinfo.Size())
+				if err != nil {
+					continue
+				}
+				if string(csum) != b.domainChecksum {
+					domainList, err := NewDomainList(file, b.domains)
+					if err != nil {
+						continue
+					}
+					b.include = domainList
+					b.domainChecksum = string(csum)
+					log.Infof("Finish update domainlist size: %d", domainList.Len())
+				}
+			case <-b.quit:
+				return
+
+			}
+
+		}
+	}()
+
+	return nil
+
+}
+
 var (
 	// ErrNoHealthy means no healthy proxies left.
 	ErrNoHealthy = errors.New("no healthy proxies")
@@ -208,6 +273,7 @@ type options struct {
 }
 
 const defaultTimeout = 5 * time.Second
+const defaultDuraiton = 86400 * time.Second
 
 // ListPass returns a set of proxies to be used for this client depending on the policy in f.
 func (b *Bypass) ListPass() []*Proxy { return b.p.List(b.pass) }

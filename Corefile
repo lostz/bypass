@@ -1,0 +1,44 @@
+(global_cache) {
+    cache {
+        # [5, 60]
+        success 65536 3600 300
+        # [1, 10]
+        denial 8192 600 60
+        prefetch 1 60m 10%
+    }
+}
+
+.:53 {
+    debug
+    log . {combined}
+    loop
+    reload 2s
+    errors
+
+    import global_cache
+
+    bypass  . 127.0.0.1:5301  {
+        geosite geosite.dat
+        include geosite:apple-cn,geosite:google-cn,geosite:cn
+        max_fails 3
+        health_check 3s
+        reload 2s
+        policy round_robin
+        forward 127.0.0.1:5302
+    }
+
+}
+.:5301 {
+   forward . tls://154.8.189.168  {
+           tls_servername j7h5g8.dbj.rubyfish.cn
+   }
+   cache
+}
+
+.:5302 {
+    forward . tls://8.8.8.8 tls://8.8.4.4 {
+        tls_servername dns.google
+    }
+    cache
+}
+

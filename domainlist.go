@@ -1,13 +1,13 @@
 package bypass
 
 import (
-	"bufio"
-	"fmt"
-	"net/http"
+	"io/ioutil"
+	"os"
 	"strings"
-	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/miekg/dns"
+	"v2ray.com/core/app/router"
 )
 
 //DomainList ...
@@ -18,38 +18,36 @@ type DomainList struct {
 }
 
 //NewDomainList ...
-func NewDomainList(listURL string, timeout time.Duration) (*DomainList, error) {
-	c := &http.Client{
-		Timeout: timeout,
-	}
-	resp, err := c.Get(listURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status code: %v", resp.StatusCode)
-	}
+func NewDomainList(file *os.File, targets []string) (*DomainList, error) {
 
 	d := &DomainList{
 		s: make(map[[16]byte]struct{}),
 		m: make(map[[32]byte]struct{}),
 		l: make(map[[256]byte]struct{}),
 	}
-	s := bufio.NewScanner(resp.Body)
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-		//ignore lines begin with # and empty lines
-		if len(line) == 0 || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fqdn := dns.Fqdn(line)
-		if _, ok := dns.IsDomainName(fqdn); !ok {
-			return nil, fmt.Errorf("invaild domain [%s]", line)
-		}
-		d.Add(fqdn)
+	geositeBytes, err := ioutil.ReadAll(file)
+	if err != nil {
+		return nil, err
 	}
+	var geositeList router.GeoSiteList
+	if err := proto.Unmarshal(geositeBytes, &geositeList); err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		var country string
+		if strings.HasPrefix(target, "geosite:") {
+			country = strings.ToUpper(target[8:])
+		}
+		for _, site := range geositeList.Entry {
+			if site.CountryCode == country {
+				for _, domain := range site.Domain {
+					d.Add(dns.Fqdn(domain.Value))
+				}
+
+			}
+		}
+	}
+
 	return d, nil
 }
 
@@ -73,6 +71,7 @@ func (l *DomainList) Add(fqdn string) {
 	}
 }
 
+//Has ...
 func (l *DomainList) Has(fqdn string) bool {
 	if fqdn == "." {
 		return false
@@ -119,6 +118,7 @@ func (l *DomainList) has(fqdn string) bool {
 	}
 }
 
+//Len ...
 func (l *DomainList) Len() int {
 	return len(l.l) + len(l.m) + len(l.s)
 }

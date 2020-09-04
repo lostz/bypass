@@ -1,12 +1,17 @@
 package bypass
 
 import (
+	"os"
 	"testing"
-	"time"
 )
 
 func TestLoadDomainListFromUrl(t *testing.T) {
-	lists, err := NewDomainList("https://cdn.jsdelivr.net/gh/felixonmars/dnsmasq-china-list/accelerated-domains.china.conf", 10*time.Second)
+	file, err := os.Open("./geosite.dat")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	defer file.Close()
+	lists, err := NewDomainList(file, []string{"geosite:apple-cn", "geosite:google-cn", "geosite:cn"})
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
