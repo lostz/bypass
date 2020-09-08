@@ -51,7 +51,7 @@ func setup(c *caddy.Controller) error {
 		return b.OnShutdown()
 	})
 	once.Do(func() {
-		caddy.RegisterEventHook("reload", b.hook)
+		caddy.RegisterEventHook("reloadg", b.hook)
 	})
 
 	return nil
