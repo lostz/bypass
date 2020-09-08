@@ -189,7 +189,7 @@ func parseBlock(c *caddyfile.Dispenser, b *Bypass) error {
 		if err != nil {
 			return err
 		}
-		domainList, err := NewDomainList(file, domains)
+		domainList, err := NewDomainList(b.geosite, domains)
 		if err != nil {
 			return err
 		}

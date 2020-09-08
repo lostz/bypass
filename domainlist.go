@@ -2,7 +2,6 @@ package bypass
 
 import (
 	"io/ioutil"
-	"os"
 	"strings"
 
 	"github.com/golang/protobuf/proto"
@@ -18,14 +17,14 @@ type DomainList struct {
 }
 
 //NewDomainList ...
-func NewDomainList(file *os.File, targets []string) (*DomainList, error) {
+func NewDomainList(path string, targets []string) (*DomainList, error) {
 
 	d := &DomainList{
 		s: make(map[[16]byte]struct{}),
 		m: make(map[[32]byte]struct{}),
 		l: make(map[[256]byte]struct{}),
 	}
-	geositeBytes, err := ioutil.ReadAll(file)
+	geositeBytes, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

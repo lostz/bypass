@@ -236,7 +236,7 @@ func (b *Bypass) hook(event caddy.EventName, info interface{}) error {
 					continue
 				}
 				if string(csum) != b.domainChecksum {
-					domainList, err := NewDomainList(file, b.domains)
+					domainList, err := NewDomainList(b.geosite, b.domains)
 					if err != nil {
 						continue
 					}
