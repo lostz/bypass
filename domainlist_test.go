@@ -10,4 +10,6 @@ func TestLoadGeosite(t *testing.T) {
 		log.Fatalf(err.Error())
 	}
 	log.Info(domains.Len())
+	found := domains.Has("baidu.com.")
+	log.Info(found)
 }
