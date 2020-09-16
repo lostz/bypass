@@ -28,9 +28,9 @@ type Bypass struct {
 	hcInterval time.Duration
 	geosite    string
 	domains    []string
+	include    *DomainList
 
 	from           string
-	include        *DomainList
 	domainChecksum string
 	dur            time.Duration
 
@@ -182,7 +182,6 @@ func (b *Bypass) match(state request.Request) bool {
 	if !plugin.Name(b.from).Matches(state.Name()) || !b.isAllowedDomain(state.Name()) {
 		return false
 	}
-
 	return true
 }
 
@@ -231,18 +230,18 @@ func (b *Bypass) hook(event caddy.EventName, info interface{}) error {
 				if err != nil {
 					continue
 				}
-				csum, err := PartialChecksum(file, fileinfo.Size())
+				_, err = PartialChecksum(file, fileinfo.Size())
 				if err != nil {
 					continue
 				}
 				if string(csum) != b.domainChecksum {
-					domainList, err := NewDomainList(b.geosite, b.domains)
+					include, err := loadGeoSiteData(b.geosite, b.domains)
 					if err != nil {
 						continue
 					}
-					b.include = domainList
+					b.include = include
 					b.domainChecksum = string(csum)
-					log.Infof("Finish update domainlist size: %d", domainList.Len())
+					log.Infof("Finish update domainlist size: %d", include.Len())
 				}
 			case <-b.quit:
 				return

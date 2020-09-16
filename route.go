@@ -17,37 +17,12 @@ type DomainList struct {
 }
 
 //NewDomainList ...
-func NewDomainList(path string, targets []string) (*DomainList, error) {
-
-	d := &DomainList{
+func NewDomainList() *DomainList {
+	return &DomainList{
 		s: make(map[[16]byte]struct{}),
 		m: make(map[[32]byte]struct{}),
 		l: make(map[[256]byte]struct{}),
 	}
-	geositeBytes, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var geositeList router.GeoSiteList
-	if err := proto.Unmarshal(geositeBytes, &geositeList); err != nil {
-		return nil, err
-	}
-	for _, target := range targets {
-		var country string
-		if strings.HasPrefix(target, "geosite:") {
-			country = strings.ToUpper(target[8:])
-		}
-		for _, site := range geositeList.Entry {
-			if site.CountryCode == country {
-				for _, domain := range site.Domain {
-					d.Add(dns.Fqdn(domain.Value))
-				}
-
-			}
-		}
-	}
-
-	return d, nil
 }
 
 //Add ...
@@ -120,4 +95,51 @@ func (l *DomainList) has(fqdn string) bool {
 //Len ...
 func (l *DomainList) Len() int {
 	return len(l.l) + len(l.m) + len(l.s)
+}
+
+func loadGeoSiteData(path string, domains []string) (*DomainList, error) {
+	include := NewDomainList()
+	geositeData, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	geosite := new(router.GeoSiteList)
+	if err := proto.Unmarshal(geositeData, geosite); err != nil {
+		return nil, err
+	}
+	for _, domain := range domains {
+		rules, err := parseDomainRule(geosite, domain)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range rules {
+			if !include.Has(rule.Value) {
+				include.Add(rule.Value)
+
+			}
+		}
+
+	}
+	return include, nil
+
+}
+
+func parseDomainRule(geosite *router.GeoSiteList, domain string) ([]*router.Domain, error) {
+	var domains []*router.Domain
+	if strings.HasPrefix(domain, "geosite:") {
+		country := strings.ToUpper(domain[8:])
+		for _, entry := range geosite.GetEntry() {
+			if country == entry.GetCountryCode() {
+				domains = append(domains, entry.GetDomain()...)
+			}
+		}
+	}
+	if strings.HasPrefix(domain, "domain:") {
+		domains = append(domains, &router.Domain{
+			Type:      router.Domain_Domain,
+			Value:     domain[7:],
+			Attribute: nil,
+		})
+	}
+	return domains, nil
 }
