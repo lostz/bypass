@@ -189,17 +189,17 @@ func parseBlock(c *caddyfile.Dispenser, b *Bypass) error {
 		if err != nil {
 			return err
 		}
-		domainList, err := NewDomainList(b.geosite, domains)
-		if err != nil {
-			return err
-		}
-		b.include = domainList
 		csum, err := PartialChecksum(file, fileinfo.Size())
 		if err != nil {
 			return err
 		}
 		b.domainChecksum = string(csum)
 		b.domains = domains
+		include, err := loadGeoSiteData(b.geosite, b.domains)
+		if err != nil {
+			return err
+		}
+		b.include = include
 	case "forward":
 		forward := c.RemainingArgs()
 		if len(forward) == 0 {
